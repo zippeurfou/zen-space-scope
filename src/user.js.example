@@ -1,0 +1,14 @@
+// zen-space-scope: begin
+user_pref("xpinstall.signatures.required", false);
+user_pref("extensions.experiments.enabled", true);
+user_pref("extensions.autoDisableScopes", 14);
+user_pref("extensions.startupScanScopes", 1);
+user_pref("browser.urlbar.suggest.history", false);
+user_pref("browser.urlbar.suggest.bookmark", false);
+user_pref("browser.urlbar.suggest.openpage", false);
+user_pref("browser.urlbar.suggest.remotetab", false);
+user_pref("browser.urlbar.suggest.recentsearches", false);
+user_pref("browser.urlbar.autoFill", false);
+user_pref("browser.urlbar.maxHistoricalSearchSuggestions", 0);
+user_pref("browser.newtabpage.activity-stream.feeds.system.topsites", false);
+// zen-space-scope: end

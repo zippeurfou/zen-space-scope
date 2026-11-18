@@ -1,0 +1,72 @@
+[
+  {
+    "namespace": "spaceScope",
+    "description": "Keeps address-bar suggestions inside the active Zen space's container.",
+    "types": [
+      {
+        "id": "Status",
+        "type": "object",
+        "properties": {
+          "state": { "type": "string", "enum": ["active", "fail-closed", "disabled", "starting"] },
+          "failedChecks": { "type": "array", "items": { "type": "string" } },
+          "conflicts": {
+            "description": "Groups of two or more spaces in the same container (container 0 for spaces without one), which the add-on cannot tell apart.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ucid": { "type": "integer" },
+                "spaces": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          },
+          "urlCount": { "type": "integer" },
+          "bookmarks": { "type": "string", "enum": ["loading", "ready", "failed"] },
+          "debug": { "type": "boolean" },
+          "canRetry": {
+            "description": "Whether switching the add-on on runs the checks again. False after a failure while it was loading, which only a Zen restart retries.",
+            "type": "boolean"
+          },
+          "version": { "type": "string" }
+        }
+      }
+    ],
+    "functions": [
+      {
+        "name": "start",
+        "type": "function",
+        "description": "Loads the container index, hooks the address bar, runs the self-check, turns the history-based suggestions on if it passed, and resolves to the status. Calling it again returns the same start.",
+        "async": true,
+        "parameters": []
+      },
+      {
+        "name": "getStatus",
+        "type": "function",
+        "description": "The current status, once start-up is over.",
+        "async": true,
+        "parameters": []
+      },
+      {
+        "name": "setEnabled",
+        "type": "function",
+        "description": "Turns scoping and the history-based suggestions on or off and resolves to the new status. On runs the self-check again, also after a failed check.",
+        "async": true,
+        "parameters": [{ "name": "on", "type": "boolean" }]
+      },
+      {
+        "name": "setDebug",
+        "type": "function",
+        "description": "Turns the debug log of every address-bar decision on or off. Off also empties the log.",
+        "async": true,
+        "parameters": [{ "name": "on", "type": "boolean" }]
+      },
+      {
+        "name": "getLog",
+        "type": "function",
+        "description": "The debug log lines and errors, oldest first.",
+        "async": true,
+        "parameters": []
+      }
+    ]
+  }
+]

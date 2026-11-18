@@ -1,0 +1,96 @@
+# On a v<version> tag: test, then build the XPI and updates.json, and publish
+# both as the latest GitHub release. The add-on's update_url and
+# `scripts/install.py --latest` both read that release.
+#
+# Two jobs. `test` installs test tools from PyPI and has read-only access.
+# `release` starts from a fresh checkout, installs no package from PyPI or
+# npm, and is the only job that can write: no third-party package code runs
+# where the published XPI is built and hashed.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+env:
+  # PyPI only, never a machine's own uv config (ruling R13).
+  UV_NO_CONFIG: "1"
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.23"
+      - name: Tests
+        run: |
+          node --test tests/unit/*.test.mjs
+          uv run --with pytest --with pyyaml pytest tests/install tests/release
+
+  release:
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      # make_updates_json.py is standard library only: uv must not reach any
+      # package index, nor download a Python (the runner's python3 serves).
+      UV_OFFLINE: "1"
+      UV_PYTHON_DOWNLOADS: "never"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.23"
+          enable-cache: false
+      - name: Build the XPI and updates.json
+        id: build
+        run: |
+          rm -rf dist
+          xpi=$(sh scripts/build.sh)
+          # Fails unless the tag is v<manifest.json version>.
+          uv run --no-project scripts/make_updates_json.py "$xpi" --expect-tag "$GITHUB_REF_NAME" -o dist/updates.json
+          count=$(find dist -name '*.xpi' | wc -l)
+          if [ "$count" -ne 1 ]; then
+            echo "expected exactly one .xpi in dist, found $count" >&2
+            exit 1
+          fi
+          echo "xpi=$xpi" >> "$GITHUB_OUTPUT"
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          XPI: ${{ steps.build.outputs.xpi }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$XPI" dist/updates.json --verify-tag --latest --title "$GITHUB_REF_NAME" --generate-notes
+      - name: Check the published assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          names=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')
+          echo "$names"
+          [ "$(echo "$names" | grep -c '\.xpi$')" -eq 1 ]
+          echo "$names" | grep -qx updates.json
+          # The released XPI must hash to the published update_hash.
+          check=$(mktemp -d)
+          gh release download "$GITHUB_REF_NAME" --pattern '*.xpi' --pattern updates.json --dir "$check"
+          want=$(jq -r '.addons[].updates[0].update_hash' "$check/updates.json")
+          got="sha256:$(sha256sum "$check"/*.xpi | cut -d ' ' -f 1)"
+          echo "update_hash $want, released XPI $got"
+          [ "$want" = "$got" ]

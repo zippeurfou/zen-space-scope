@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Zen Space Scope</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <h1>Zen Space Scope</h1>
+
+    <section>
+      <h2>Status</h2>
+      <p>
+        <span id="state">loading</span>
+        <span class="muted">(version <span id="version"></span>)</span>
+      </p>
+      <p id="failed-box" hidden>
+        Failed checks: <span id="failed"></span>. Suggestions from history, bookmarks, open tabs
+        and top sites stay off. <span id="retry"></span>
+      </p>
+      <p class="muted">
+        <span id="url-count">0</span> visited pages indexed, bookmark spaces:
+        <span id="bookmarks">loading</span>.
+      </p>
+      <label class="switch">
+        <input type="checkbox" id="enabled" disabled />
+        Scope address-bar suggestions to the active space
+      </label>
+    </section>
+
+    <section>
+      <h2>Containers</h2>
+      <p id="no-conflicts">Every space has a container of its own.</p>
+      <div id="conflict-list" hidden>
+        <p>
+          These spaces share a container, so the add-on cannot tell them apart. Suggestions from one
+          can show in the other. Give each space its own container.
+        </p>
+        <ul id="conflicts"></ul>
+      </div>
+    </section>
+
+    <section>
+      <h2>Debug log</h2>
+      <label class="switch">
+        <input type="checkbox" id="debug" disabled />
+        Log every address-bar decision
+      </label>
+      <p><button type="button" id="refresh-log">Refresh</button></p>
+      <pre id="log"></pre>
+    </section>
+
+    <script src="options.js"></script>
+  </body>
+</html>

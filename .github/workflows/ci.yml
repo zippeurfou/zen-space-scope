@@ -1,0 +1,88 @@
+# Unit, install and acceptance tests.
+#
+# To run the same commands locally, see tests/acceptance/README.md,
+# "Continuous integration".
+name: ci
+
+on:
+  push:
+  schedule:
+    # Daily, so a new Zen release that breaks the add-on shows up even
+    # without a push.
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # uv reads no user or system uv.toml, so test dependencies come from PyPI
+  # only (uv.lock files stay untracked, ruling R13).
+  UV_NO_CONFIG: "1"
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - name: Unit tests
+        run: node --test tests/unit/*.test.mjs
+
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.23"
+      - name: Install and release tests
+        run: uv run --with pytest --with pyyaml pytest tests/install tests/release
+
+  acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      HEADLESS: "1"
+      # The harness sets it too; chrome-context Marionette needs it
+      # (RemoteAgent.sys.mjs in Zen 1.24.2b).
+      MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.23"
+      - name: Zen's runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-0t64 libasound2t64 libdbus-glib-1-2 libx11-xcb1 libxtst6
+      - name: Latest Zen release
+        run: |
+          # Resolve the latest release's tag once and download from that tag,
+          # so the log names the Zen a red daily run tested.
+          latest=$(curl -fsSLI --retry 3 -o /dev/null -w '%{url_effective}' \
+            https://github.com/zen-browser/desktop/releases/latest)
+          tag=${latest##*/}
+          echo "Zen release tag: $tag"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/zen.tar.xz" \
+            "https://github.com/zen-browser/desktop/releases/download/$tag/zen.linux-x86_64.tar.xz"
+          tar -xJf "$RUNNER_TEMP/zen.tar.xz" -C "$RUNNER_TEMP"
+          grep -E '^(Version|BuildID)=' "$RUNNER_TEMP/zen/application.ini"
+          echo "ZEN_BINARY=$RUNNER_TEMP/zen/zen" >> "$GITHUB_ENV"
+      - name: Acceptance tests
+        run: uv run --project tests/acceptance pytest tests/acceptance

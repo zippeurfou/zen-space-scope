@@ -1,0 +1,30 @@
+{
+  "manifest_version": 2,
+  "name": "Zen Space Scope",
+  "version": "0.1.0",
+  "description": "Keeps address-bar suggestions inside the active Zen space's container.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "zen-space-scope@zippeurfou.github.io",
+      "strict_min_version": "160.0",
+      "update_url": "https://github.com/zippeurfou/zen-space-scope/releases/latest/download/updates.json"
+    }
+  },
+  "background": {
+    "scripts": ["src/background.js"],
+    "persistent": true
+  },
+  "options_ui": {
+    "page": "options/options.html"
+  },
+  "experiment_apis": {
+    "spaceScope": {
+      "schema": "src/experiment/schema.json",
+      "parent": {
+        "scopes": ["addon_parent"],
+        "paths": [["spaceScope"]],
+        "script": "src/experiment/api.js"
+      }
+    }
+  }
+}

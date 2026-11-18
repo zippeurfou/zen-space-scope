@@ -1,0 +1,10 @@
+[
+  { "name": "browser.urlbar.suggest.history", "off": false, "on": true },
+  { "name": "browser.urlbar.suggest.bookmark", "off": false, "on": true },
+  { "name": "browser.urlbar.suggest.openpage", "off": false, "on": true },
+  { "name": "browser.urlbar.suggest.remotetab", "off": false, "on": true },
+  { "name": "browser.urlbar.suggest.recentsearches", "off": false, "on": true },
+  { "name": "browser.urlbar.autoFill", "off": false, "on": true },
+  { "name": "browser.urlbar.maxHistoricalSearchSuggestions", "off": 0, "on": 2 },
+  { "name": "browser.newtabpage.activity-stream.feeds.system.topsites", "off": false, "on": true }
+]

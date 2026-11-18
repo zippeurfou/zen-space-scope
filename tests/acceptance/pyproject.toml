@@ -1,0 +1,17 @@
+[project]
+name = "zen-space-scope-acceptance"
+version = "0.0.0"
+description = "Marionette acceptance tests for zen-space-scope"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pytest",
+    "marionette_driver",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+addopts = "-p no:cacheprovider"
+filterwarnings = ["ignore:'telnetlib' is deprecated:DeprecationWarning"]
