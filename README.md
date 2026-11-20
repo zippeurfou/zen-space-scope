@@ -2,6 +2,8 @@
 
 A Zen Browser add-on that keeps address-bar suggestions inside the active space's container.
 
+![Demo: typing "g" in the Work space suggests GitHub pages, and typing "g" in the Personal space suggests only Goodreads and Wikipedia pages](docs/demo.gif)
+
 I made it for screen sharing. If you use one space for work and another for personal stuff, the address bar in Zen still suggests pages from both. Type "g" while presenting and your personal Gmail is right there in the dropdown. This add-on makes the dropdown only show what the active space's container has seen.
 
 It is a privileged, unsigned add-on, so please read "What the install enables" before you run anything.
