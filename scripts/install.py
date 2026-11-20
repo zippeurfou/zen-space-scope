@@ -42,6 +42,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from collections.abc import Iterator
 from pathlib import Path
 
 try:
@@ -340,6 +341,61 @@ def zen_running(profile: Path) -> str | None:
     return _parentlock_state(profile) or _lock_symlink_live(profile)
 
 
+def _refuse(profile: Path, why: str) -> InstallError:
+    return InstallError(
+        f"Zen is running on {profile}, or cannot be ruled out: {why}. "
+        "Quit Zen (Cmd+Q) and re-run the same command."
+    )
+
+
+@contextlib.contextmanager
+def holding_profile(profile: Path) -> Iterator[None]:
+    """Hold Zen's own lock on <profile>/.parentlock from the running check
+    through the last write, so a Zen started meanwhile finds the profile in
+    use instead of racing our build, download, reads and writes (ruling R46).
+
+    The lock is the POSIX record lock (fcntl.lockf, F_SETLK) Gecko takes, not
+    a BSD flock: on macOS the two kinds do not see each other. A missing
+    .parentlock (a profile Zen never opened) is created, so the hold covers
+    it too, and removed again while still held, so the profile is left as it
+    was. One exception: if lockf fails with an error other than EAGAIN or
+    EACCES, a .parentlock created here stays behind as an empty file. A
+    .parentlock that was already there is never removed. Closing the
+    descriptor drops the lock on every exit path. Nothing inside the hold may
+    open and close another descriptor on .parentlock: closing any descriptor
+    of a file drops this process's POSIX locks on it.
+
+    Removing the created file leaves a small race: a newcomer that opened it
+    just before the unlink ends up holding a lock on an unlinked file, while
+    the next process creates a fresh .parentlock. The window is microseconds,
+    after the last write, and only on a profile Zen never opened; under R46
+    this order is the best available."""
+    path = profile / ".parentlock"
+    created = not os.path.lexists(path)
+    try:
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o644)
+    except OSError as e:
+        raise _refuse(profile, f"cannot check {path} ({e})") from e
+    try:
+        try:
+            fcntl.lockf(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as e:
+            if e.errno in (errno.EACCES, errno.EAGAIN):
+                raise _refuse(profile, f"another process holds {path}") from e
+            raise _refuse(profile, f"cannot lock {path} ({e})") from e
+        try:
+            why = _lock_symlink_live(profile)
+            if why:
+                raise _refuse(profile, why)
+            yield
+        finally:
+            if created:
+                with contextlib.suppress(OSError):
+                    path.unlink()
+    finally:
+        os.close(fd)
+
+
 # -- user.js ---------------------------------------------------------------------
 
 
@@ -616,17 +672,19 @@ def run(args: argparse.Namespace) -> int:
     def say(present: str, past: str) -> str:
         return f"[dry run] would {present}" if dry else past
 
-    why = zen_running(profile)
-    if why:
-        if not dry:
-            raise InstallError(
-                f"Zen is running on {profile}, or cannot be ruled out: {why}. "
-                "Quit Zen (Cmd+Q) and re-run the same command."
+    if dry:
+        # A dry run writes nothing, so a check without holding is enough.
+        why = zen_running(profile)
+        if why:
+            print(
+                f"note: Zen may be running on this profile ({why}); a real run would refuse"
             )
-        print(
-            f"note: Zen may be running on this profile ({why}); a real run would refuse"
-        )
+        return _run_in_profile(args, profile, dry, say)
+    with holding_profile(profile):
+        return _run_in_profile(args, profile, dry, say)
 
+
+def _run_in_profile(args, profile, dry, say) -> int:
     print(f"profile: {profile}")
     user_js = profile / "user.js"
     target = Path(os.path.realpath(user_js)) if user_js.is_symlink() else user_js

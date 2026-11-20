@@ -23,7 +23,7 @@ if [ -n "$override" ]; then
   esac
 fi
 
-files="manifest.json LICENSE src"
+files="manifest.json LICENSE src icons"
 if [ -d options ]; then
   files="$files options"
 fi

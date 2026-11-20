@@ -15,6 +15,7 @@ import re
 import stat
 import subprocess
 import sys
+import time
 import zipfile
 from pathlib import Path
 
@@ -316,11 +317,14 @@ def test_refuses_while_zen_runs_on_the_profile(tmp_path, xpi):
     profile = make_profile(tmp_path, "p")
     # Zen's lock: a dangling symlink "<ip>:+<pid>". Our parent is alive.
     (profile / "lock").symlink_to(f"127.0.0.1:+{os.getpid()}")
+    before = snapshot(profile)
     r = run("--profile", str(profile), "--xpi", str(xpi))
     assert r.returncode != 0
     assert "running" in r.stderr.lower()
     assert not (profile / "user.js").exists()
     assert not (profile / "extensions").exists()
+    # No stray .parentlock from the hold.
+    assert snapshot(profile) == before
 
 
 def test_stale_lock_does_not_block(tmp_path, xpi):
@@ -576,6 +580,207 @@ def test_dry_run_warns_while_parentlock_is_held(tmp_path, xpi, parentlock_held):
     assert r.returncode == 0, r.stderr
     assert "running" in r.stdout.lower()
     assert snapshot(profile) == before
+
+
+PROBE = (
+    "import fcntl, os, sys\n"
+    "fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o644)\n"
+    "try:\n"
+    "    fcntl.lockf(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+    "    print('free')\n"
+    "except OSError:\n"
+    "    print('held')\n"
+)
+
+
+def probe_parentlock(profile: Path) -> str:
+    """'held' or 'free': whether another process can take the same POSIX
+    lock Zen takes on <profile>/.parentlock. Run in a separate process, as
+    Zen would be. A missing file is created, as Zen does."""
+    r = subprocess.run(
+        [sys.executable, "-c", PROBE, str(profile / ".parentlock")],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return r.stdout.strip()
+
+
+def popen(*args: str, env: dict | None = None) -> subprocess.Popen:
+    assert "--profile" in args or "--zen-dir" in args, args
+    return subprocess.Popen(
+        ["uv", "run", "--no-project", str(SCRIPT), *args],
+        stdin=subprocess.DEVNULL,  # uv forwards SIGINT only when stdin is not a TTY
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={**os.environ, **(env or {})},
+        cwd=REPO,
+    )
+
+
+@pytest.fixture
+def stalled_https():
+    """A local https:// URL whose server accepts the connection and never
+    answers, so `--latest` stalls in its download step. Yields (url,
+    wait_connected, close)."""
+    import socket
+
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    conns = []
+
+    def wait_connected(timeout: float = 60) -> None:
+        server.settimeout(timeout)
+        conn, _ = server.accept()
+        conns.append(conn)
+
+    def close() -> None:
+        for c in conns:
+            c.close()
+        server.close()
+
+    yield f"https://127.0.0.1:{server.getsockname()[1]}/latest", wait_connected, close
+    close()
+
+
+@pytest.mark.parametrize("existing_lock", [True, False])
+def test_install_holds_the_parentlock_through_the_slow_step(
+    tmp_path, stalled_https, existing_lock
+):
+    """A Zen started while the installer downloads (or builds) must find
+    the profile locked. Then the lock is released on the failure path."""
+    url, wait_connected, close = stalled_https
+    profile = make_profile(tmp_path, "p")
+    if existing_lock:
+        (profile / ".parentlock").write_text("")  # left behind by a quit Zen
+    p = popen(
+        "--profile",
+        str(profile),
+        "--latest",
+        env={"ZEN_SPACE_SCOPE_RELEASES_URL": url},
+    )
+    try:
+        wait_connected()
+        assert probe_parentlock(profile) == "held"
+    finally:
+        close()
+        try:
+            _, err = p.communicate(timeout=60)
+        finally:
+            if p.poll() is None:
+                p.kill()
+                p.wait()
+    assert p.returncode == 1 and "Traceback" not in err, err
+    assert not (profile / "user.js").exists()
+    # A .parentlock the installer created only to hold is removed again.
+    assert (profile / ".parentlock").exists() == existing_lock
+    assert probe_parentlock(profile) == "free"
+
+
+def test_parentlock_released_after_interrupt(tmp_path, stalled_https):
+    import signal
+
+    url, wait_connected, close = stalled_https
+    profile = make_profile(tmp_path, "p")
+    p = popen(
+        "--profile",
+        str(profile),
+        "--latest",
+        env={"ZEN_SPACE_SCOPE_RELEASES_URL": url},
+    )
+    try:
+        wait_connected()
+        assert probe_parentlock(profile) == "held"
+        p.send_signal(signal.SIGINT)  # uv forwards it to the script
+        _, err = p.communicate(timeout=60)
+        # Still before close(): the stalled download did not end the run.
+        # The installer removed the .parentlock it created (the probe below
+        # recreates it).
+        assert not (profile / ".parentlock").exists()
+        assert probe_parentlock(profile) == "free"
+    finally:
+        close()
+        if p.poll() is None:
+            p.kill()
+            p.wait()
+    assert p.returncode != 0
+    assert "KeyboardInterrupt" in err, err
+    assert not (profile / "user.js").exists()
+
+
+def test_uninstall_holds_the_parentlock_through_the_prefs_js_reset(tmp_path, xpi):
+    """prefs.js is a FIFO here, so uninstall stalls while reading it, after
+    the running check and before its first write."""
+    profile = make_profile(tmp_path, "p")
+    assert run("--profile", str(profile), "--xpi", str(xpi)).returncode == 0
+    os.mkfifo(profile / "prefs.js")
+    p = popen("--profile", str(profile), "--uninstall")
+    try:
+        writer = None
+        deadline = time.monotonic() + 60
+        while writer is None:  # ENXIO until the installer opens it to read
+            assert p.poll() is None, p.communicate()
+            assert time.monotonic() < deadline, "uninstall never read prefs.js"
+            try:
+                writer = os.open(profile / "prefs.js", os.O_WRONLY | os.O_NONBLOCK)
+            except OSError:
+                time.sleep(0.05)
+        assert probe_parentlock(profile) == "held"
+        data = f'user_pref("{block_names()[0]}", false);\nuser_pref("keep", 1);\n'
+        os.write(writer, data.encode())
+        os.close(writer)
+        _, err = p.communicate(timeout=60)
+    finally:
+        if p.poll() is None:
+            p.kill()
+            p.wait()
+    assert p.returncode == 0, err
+    assert (profile / "prefs.js").read_text() == 'user_pref("keep", 1);\n'
+    assert probe_parentlock(profile) == "free"
+
+
+def test_parentlock_released_after_success_and_profile_unchanged(tmp_path, xpi):
+    profile = make_profile(tmp_path, "p")
+    assert run("--profile", str(profile), "--xpi", str(xpi)).returncode == 0
+    # A .parentlock the installer created only to hold is removed again.
+    assert sorted(p.name for p in profile.iterdir()) == ["extensions", "user.js"]
+    assert probe_parentlock(profile) == "free"
+    # The probe left a .parentlock, as a quit Zen does: uninstall keeps it.
+    assert run("--profile", str(profile), "--uninstall").returncode == 0
+    assert probe_parentlock(profile) == "free"
+    assert (profile / ".parentlock").read_bytes() == b""
+
+
+def test_refuses_a_symlinked_parentlock_and_creates_nothing(tmp_path, xpi):
+    """Gecko's fallback lock on macOS is a symlink named .parentlock. The
+    installer must not follow it and create its target."""
+    profile = make_profile(tmp_path, "p")
+    (profile / ".parentlock").symlink_to("192.168.1.2:+4242")
+    before = snapshot(profile)
+    r = run("--profile", str(profile), "--xpi", str(xpi))
+    assert r.returncode == 1 and "Traceback" not in r.stderr, r.stderr
+    assert "cannot check" in r.stderr, r.stderr
+    assert snapshot(profile) == before
+    assert not (profile / "192.168.1.2:+4242").exists()
+
+
+def test_install_holds_the_parentlock_while_building(tmp_path, monkeypatch):
+    mod = load_installer()
+    profile = make_profile(tmp_path, "p")
+    seen = []
+
+    def slow_build():
+        seen.append(probe_parentlock(profile))  # another process, as Zen
+        return make_xpi(tmp_path / "built.xpi")
+
+    monkeypatch.setattr(mod, "build_xpi", slow_build)
+    assert mod.main(["--profile", str(profile)]) == 0
+    assert seen == ["held"]
+    # The installer created .parentlock for its hold and removed it again.
+    assert sorted(p.name for p in profile.iterdir()) == ["extensions", "user.js"]
+    assert probe_parentlock(profile) == "free"
 
 
 def test_unheld_parentlock_does_not_block(tmp_path, xpi):
@@ -886,6 +1091,8 @@ def test_install_failure_on_user_js_leaves_xpi_only_then_rerun_finishes(tmp_path
         assert "re-run" in r.stderr.lower()
         assert (profile / "extensions" / f"{ADDON_ID}.xpi").exists()
         assert not (ro / "user.js").exists()
+        assert not (profile / ".parentlock").exists()
+        assert probe_parentlock(profile) == "free"
     finally:
         ro.chmod(0o755)
     r = run("--profile", str(profile), "--xpi", str(xpi))

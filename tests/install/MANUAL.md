@@ -47,9 +47,23 @@ HEADLESS=1 uv run --project tests/acceptance python tests/install/real_running.p
 Starts a headless Zen on a temp profile (unregistered `-profile`; the profile
 holds only `.parentlock`, no `lock` symlink), then runs the installer on it.
 Result (macOS, Zen 1.24.2b): install exit 1 ("Zen is running on ..."),
-`--uninstall` exit 1, `--dry-run` exit 0 with "note: Zen is running on this
-profile; a real run would refuse" and nothing written; after Zen quit, install
+`--uninstall` exit 1, `--dry-run` exit 0 with "note: Zen may be running on
+this profile (...); a real run would refuse" and nothing written; after Zen quit, install
 exit 0. No Zen processes left behind.
+
+Outside dry runs the installer keeps holding that lock until its last write
+(R46): the build from the checkout or the download, every read and every
+write happen under the hold, so a Zen started meanwhile finds the profile in
+use. A missing `.parentlock` is created for the hold and removed again; one
+that was there stays. The unit tests check the hold from a separate process,
+and that the lock is free again after a success, a failure and an interrupt.
+
+Result with the hold (macOS, Zen 1.24.3b, 2026-11-19): install and
+`--uninstall` exit 1 ("another process holds .../.parentlock"), `--dry-run`
+exit 0 with the note, and `user.js` is byte for byte unchanged while Zen
+runs. After Zen quit, install exit 0 and Zen's `.parentlock` is still there.
+A second Zen then starts on the same profile, so Zen still opens a profile
+after an install that kept its own `.parentlock`. `RESULT: PASS`.
 
 ## Uninstall and prefs.js (R32)
 

@@ -182,6 +182,8 @@ After a Zen update, a red check usually means Zen changed code the add-on relies
 
 **The installer says Zen is running.** Quit Zen with Cmd+Q and run the same command again. The script also refuses when it can't tell whether the profile is locked, and the message says why.
 
+**Zen says it is already open while the installer runs.** The script keeps the profile locked until its last write, so a Zen you start in that window finds the profile in use. Wait for the script to finish, then start Zen.
+
 **The installer lists several Zen installs or data directories.** Pass `--profile` with the path from `about:profiles`.
 
 **The debug log.** Turn it on in the options page to log every address-bar decision. It contains the URLs you visit, and it is off by default, so be careful before pasting it in an issue. Turning it off empties the log.

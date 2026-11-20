@@ -115,7 +115,7 @@ Everything is keyed on the container. Two spaces in the same container, or two s
 
 The add-on is a WebExtension Experiment. It needs unsigned add-ons and experiment add-ons allowed, and the `user.js` block turns both on. The same block lets an add-on file in the profile's `extensions` folder start without a prompt. A scripted install depends on that. It also weakens the profile, and the README says so before the install steps.
 
-The install script finds the profile from Zen's own install records and refuses when it cannot be sure: several installs, several data directories, a profile entry that is empty or points at the data directory, or a running Zen. It copies the add-on file first and writes the block second, so a failure in between changes no pref.
+The install script finds the profile from Zen's own install records and refuses when it cannot be sure: several installs, several data directories, a profile entry that is empty or points at the data directory, or a running Zen. Outside dry runs it keeps holding Zen's profile lock from that check until its last write. It copies the add-on file first and writes the block second, so a failure in between changes no pref.
 
 Uninstall removes the file and the block, and also deletes from `prefs.js` the lines of exactly the prefs the block set, because Zen copies `user.js` values there.
 
@@ -171,3 +171,5 @@ Numbers that are missing were process decisions with no trace in the code.
 | R40 | Smaller ones from the last review: past searches are a guarded pref, an activation that throws fails closed, the debug log is emptied when debug is turned off, the notice says whether the switch or a restart retries, and the installer names its platforms on Windows. |
 | R42 | The index ignores "page visited" events with a visit id of 0. Firefox sends them for visits it did not store, with container 0 whatever the tab's container, so they showed a page from a container in the space without a container until a restart. User-visible: a visit Firefox drops is never suggested, as in Firefox. The acceptance tests make one click at start, so flooding prevention runs as it does for a real user, and never turn it off. |
 | R43 | An autofill title that is one of the page's bookmark titles stays only where those bookmarks show. Other autofill titles follow R36. |
+| R46 | Outside dry runs the installer holds the lock on `.parentlock` from its running check through its last write, so a Zen started during the build, the download or the writes finds the profile in use. A `.parentlock` it had to create is removed afterwards; one that was there stays. Refines R33. |
+| R47 | The add-on ships a logo for about:addons: `icons/icon.svg`, the 32px master also used at 48 and 96, and `icons/icon-16.svg`, drawn for 16px. A release test checks that every icon the manifest names is in the built add-on. |

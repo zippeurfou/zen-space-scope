@@ -156,3 +156,28 @@ def test_real_build(tmp_path):
         f"{DOWNLOADS}/v{version}/zen-space-scope-{version}.xpi"
     )
     assert entry["applications"]["gecko"]["strict_min_version"] == "160.0"
+
+
+ICONS = {
+    "16": "icons/icon-16.svg",
+    "32": "icons/icon.svg",
+    "48": "icons/icon.svg",
+    "96": "icons/icon.svg",
+}
+
+
+def test_real_build_packages_the_manifest_icons():
+    """The logo in about:addons (ruling R47): every icon the manifest names is
+    in the built add-on, byte for byte."""
+    built = subprocess.run(
+        ["sh", str(REPO / "scripts" / "build.sh")],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=REPO,
+    ).stdout.strip()
+    with zipfile.ZipFile(built) as z:
+        manifest = json.loads(z.read("manifest.json"))
+        assert manifest["icons"] == ICONS
+        for path in set(ICONS.values()):
+            assert z.read(path) == (REPO / path).read_bytes()

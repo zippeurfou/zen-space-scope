@@ -2,7 +2,8 @@
 
 Starts a headless Zen on a throwaway profile directory (unregistered
 `-profile`, through the acceptance harness; never `-CreateProfile`, never a
-real profile), runs the installer on it, quits Zen and runs it again.
+real profile), runs the installer on it, quits Zen and runs it again, then
+starts a second Zen on the same profile to show the installer let go of it.
 
     HEADLESS=1 uv run --project tests/acceptance python tests/install/real_running.py
 """
@@ -60,15 +61,37 @@ def main() -> int:
                     if p.name.startswith((".parent", "lock"))
                 ),
             )
+            user_js = (profile / "user.js").read_bytes()
             refused = install(profile)
             refused_u = install(profile, "--uninstall")
             dry = install(profile, "--dry-run")
             assert not (profile / "extensions").exists(), "wrote while running"
+            assert (profile / "user.js").read_bytes() == user_js, "wrote while running"
         finally:
             zen.close(keep_profile=True)
         print("Zen quit")
         proceeded = install(profile)
-        ok = refused != 0 and refused_u != 0 and dry == 0 and proceeded == 0
+        assert (profile / ".parentlock").exists(), "removed Zen's .parentlock"
+        # A second Zen on the same profile: Zen still starts after an install
+        # that kept Zen's own .parentlock.
+        again = Zen(prefs={})
+        again.profile = profile
+        try:
+            again.start()
+            restarted = True
+            print("second Zen started on the profile")
+        except (RuntimeError, TimeoutError, OSError) as e:
+            restarted = False
+            print(f"second Zen failed to start: {e}")
+        finally:
+            again.close(keep_profile=True)
+        ok = (
+            refused != 0
+            and refused_u != 0
+            and dry == 0
+            and proceeded == 0
+            and restarted
+        )
         print("RESULT:", "PASS" if ok else "FAIL")
         return 0 if ok else 1
     finally:
