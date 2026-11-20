@@ -126,6 +126,14 @@ def test_options_page_shows_status_and_conflicts(zen, addon):
         assert not page.eval("return document.querySelector('#conflict-list').hidden;")
 
 
+def test_options_page_is_loaded_when_handed_over(zen, addon):
+    with zen.options_page(addon) as page:
+        got = page.eval(
+            "return [document.URL.endsWith('/options/options.html'), document.readyState];"
+        )
+        assert got == [True, "complete"]
+
+
 def test_options_toggle_off_turns_suggestions_off(zen, site, addon):
     wiki = site.url("wiki.test", "a")
     visit_closed(zen, wiki)

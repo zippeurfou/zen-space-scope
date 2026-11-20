@@ -133,7 +133,7 @@ channel is https and needs no pref change.
 | `window` | The handle of the selected window. |
 | `install_addon(path) -> str` | Temporary install of a directory or `.xpi`. |
 | `addon_call(addon_id, method, *args)` | Calls `browser.spaceScope.<method>` of the add-on from chrome and returns the result. |
-| `options_page(addon_id)` | Context manager: opens the add-on's options page in a new tab and yields an `ExtensionPage` (`eval(js, *args)`, `wait(js, what)`, `text(selector)`, `click(selector)`) that runs in the page's content context. Leave the `with` block before calling other helpers; they need the chrome context. |
+| `options_page(addon_id)` | Context manager: opens the add-on's options page in a new tab and, once it has loaded, yields an `ExtensionPage` (`eval(js, *args)`, `wait(js, what)`, `text(selector)`, `click(selector)`) that runs in the page's content context. Leave the `with` block before calling other helpers; they need the chrome context. |
 | `chrome(body, *args, timeout=30)` | Runs `body` as an async function in the window. `win`, `args` and `waitFor(fn, what, ms)` are in scope; `return` a JSON value. A throw raises `ZenScriptError` with the JS stack. |
 
 `zen.hosts(rows)` returns the set of URL hosts in a list of rows, and

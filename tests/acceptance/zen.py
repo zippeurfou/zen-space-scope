@@ -413,20 +413,29 @@ class Zen:
     def options_page(self, addon_id: str):
         """Open the add-on's options page in a new tab and yield an
         `ExtensionPage` that runs scripts in it (Marionette's content
-        context). The tab is closed and the chrome context restored after.
-        Leave the `with` block before calling the other helpers: they run
-        chrome scripts, which need the chrome context."""
+        context), once the page has loaded. The tab is closed and the chrome
+        context restored after. Leave the `with` block before calling the
+        other helpers: they run chrome scripts, which need the chrome
+        context."""
         assert self.client is not None
         chrome_handle = self.window
         before = set(self.client.window_handles)
         self.chrome(
             """
             const policy = WebExtensionPolicy.getByID(args[0]);
-            const tab = win.gBrowser.addTab(
-              `moz-extension://${policy.mozExtensionHostname}/options/options.html`,
+            const url = `moz-extension://${policy.mozExtensionHostname}/options/options.html`;
+            const tab = win.gBrowser.addTab(url,
               { triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
             win.gBrowser.selectedTab = tab;
             win.optionsTab = tab;
+            const b = tab.linkedBrowser;
+            try {
+              await waitFor(() => b.currentURI.spec == url && !b.webProgress?.isLoadingDocument,
+                            "the options page to load");
+            } catch (e) {
+              win.gBrowser.removeTab(tab);
+              throw e;
+            }
             """,
             addon_id,
         )
